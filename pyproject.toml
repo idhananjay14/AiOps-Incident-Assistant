@@ -2,6 +2,13 @@
 name = "aiops-incident-assistant"
 version = "0.1.0"
 description = "Evidence-driven AIOps incident response platform"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy",
+    "psycopg[binary]",
+    "pydantic-settings",
+]
 requires-python = ">=3.12"
 
 [tool.pytest.ini_options]
@@ -10,3 +17,6 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
