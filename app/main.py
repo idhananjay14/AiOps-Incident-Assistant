@@ -30,6 +30,9 @@ def apply_failure_mode() -> None:
     if settings.failure_mode == "high_error":
         raise HTTPException(status_code=500, detail="Injected failure")
 
+    if settings.failure_mode == "database_failure":
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
