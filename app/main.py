@@ -1,4 +1,8 @@
-from fastapi import Depends, FastAPI, HTTPException
+import logging
+import time
+import uuid
+
+from fastapi import Depends, FastAPI, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_db
@@ -6,12 +10,42 @@ from app.models import Task
 from app.schemas import TaskCreate, TaskResponse, TaskUpdate
 
 from app.config import settings
+from app.logging import configure_logging
 
 
 app = FastAPI(
     title="AIOps Incident Assistant",
     version="0.1.0",
 )
+
+
+configure_logging()
+logger = logging.getLogger("app")
+
+
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+
+    start_time = time.perf_counter()
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+
+    latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+    logger.info(
+        "request completed",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "latency_ms": latency_ms,
+        },
+    )
+
+    return response
 
 
 @app.get("/health")

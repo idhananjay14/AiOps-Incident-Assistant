@@ -8,6 +8,7 @@ dependencies = [
     "sqlalchemy",
     "psycopg[binary]",
     "pydantic-settings",
+    "python-json-logger",
 ]
 requires-python = ">=3.12"
 
