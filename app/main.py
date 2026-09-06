@@ -27,6 +27,9 @@ def apply_failure_mode() -> None:
     if settings.failure_mode == "high_latency":
         time.sleep(3)
 
+    if settings.failure_mode == "high_error":
+        raise HTTPException(status_code=500, detail="Injected failure")
+
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
