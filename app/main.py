@@ -23,6 +23,11 @@ configure_logging()
 logger = logging.getLogger("app")
 
 
+def apply_failure_mode() -> None:
+    if settings.failure_mode == "high_latency":
+        time.sleep(3)
+
+
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
@@ -58,6 +63,7 @@ def health() -> dict[str, str]:
 
 @app.post("/tasks", response_model=TaskResponse, status_code=201)
 def create_task(task: TaskCreate, db: Session = Depends(get_db)) -> Task:
+    apply_failure_mode()
     db_task = Task(
         title=task.title,
         description=task.description,
@@ -71,10 +77,12 @@ def create_task(task: TaskCreate, db: Session = Depends(get_db)) -> Task:
 
 @app.get("/tasks", response_model=list[TaskResponse])
 def list_tasks(db: Session = Depends(get_db)) -> list[Task]:
+    apply_failure_mode()
     return db.query(Task).order_by(Task.id).all()
 
 @app.get("/tasks/{task_id}", response_model=TaskResponse)
 def get_task(task_id: int, db: Session = Depends(get_db)) -> Task:
+    apply_failure_mode()
     task = db.get(Task, task_id)
 
     if task is None:
@@ -89,6 +97,8 @@ def update_task(
     task_update: TaskUpdate,
     db: Session = Depends(get_db),
 ) -> Task:
+    apply_failure_mode()
+
     task = db.get(Task, task_id)
 
     if task is None:
@@ -107,6 +117,7 @@ def update_task(
 
 @app.delete("/tasks/{task_id}", status_code=204)
 def delete_task(task_id: int, db: Session = Depends(get_db)) -> None:
+    apply_failure_mode()
     task = db.get(Task, task_id)
 
     if task is None:

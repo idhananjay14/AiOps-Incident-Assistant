@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+    failure_mode: str = "normal"
     database_url: str = "postgresql://aiops:aiops@localhost:5432/aiops"
 
     model_config = SettingsConfigDict(
