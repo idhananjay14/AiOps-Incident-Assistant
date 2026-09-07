@@ -13,6 +13,12 @@ http_requests_in_progress = Gauge(
 )
 
 
+app_health = Gauge(
+    "app_health",
+    "Application health status",
+)
+
+
 http_requests_total = Counter(
     "http_requests_total",
     "Total HTTP requests",
@@ -139,6 +145,7 @@ def metrics():
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    app_health.set(1)
     return {
         "status": "healthy",
         "environment": settings.app_env,
