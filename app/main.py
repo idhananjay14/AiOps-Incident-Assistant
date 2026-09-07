@@ -3,6 +3,7 @@ import time
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from prometheus_client import Counter, Gauge, Histogram
@@ -16,6 +17,12 @@ http_requests_in_progress = Gauge(
 app_health = Gauge(
     "app_health",
     "Application health status",
+)
+
+
+db_health = Gauge(
+    "db_health",
+    "Database health status",
 )
 
 
@@ -150,6 +157,17 @@ def health() -> dict[str, str]:
         "status": "healthy",
         "environment": settings.app_env,
     }
+
+
+@app.get("/ready")
+def ready(db: Session = Depends(get_db)) -> dict[str, str]:
+    try:
+        db.execute(text("SELECT 1"))
+        db_health.set(1)
+        return {"status": "ready"}
+    except Exception:
+        db_health.set(0)
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
 
 @app.post("/tasks", response_model=TaskResponse, status_code=201)
