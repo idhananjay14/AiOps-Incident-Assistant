@@ -2,8 +2,29 @@ import logging
 import time
 import uuid
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from sqlalchemy.orm import Session
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from prometheus_client import Counter, Histogram
+
+http_requests_total = Counter(
+    "http_requests_total",
+    "Total HTTP requests",
+    ["method", "path", "status"],
+)
+
+http_request_duration_seconds = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "path"],
+)
+
+http_requests_errors_total = Counter(
+    "http_requests_errors_total",
+    "Total HTTP error responses",
+    ["method", "path", "status"],
+)
+
 
 from app.dependencies import get_db
 from app.models import Task
@@ -40,7 +61,29 @@ async def add_request_id(request: Request, call_next):
     request.state.request_id = request_id
 
     start_time = time.perf_counter()
-    response = await call_next(request)
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        http_requests_total.labels(
+            method=request.method,
+            path=request.url.path,
+            status="500",
+        ).inc()
+
+        http_requests_errors_total.labels(
+            method=request.method,
+            path=request.url.path,
+            status="500",
+        ).inc()
+
+        http_request_duration_seconds.labels(
+            method=request.method,
+            path=request.url.path,
+        ).observe(time.perf_counter() - start_time)
+
+        raise
+
     response.headers["X-Request-ID"] = request_id
 
     latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
@@ -56,7 +99,30 @@ async def add_request_id(request: Request, call_next):
         },
     )
 
+    http_requests_total.labels(
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+    ).inc()
+
+    http_request_duration_seconds.labels(
+        method=request.method,
+        path=request.url.path,
+    ).observe(time.perf_counter() - start_time)
+
+    if response.status_code >= 400:
+        http_requests_errors_total.labels(
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+        ).inc()
+
     return response
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/health")
