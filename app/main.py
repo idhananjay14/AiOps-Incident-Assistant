@@ -5,7 +5,13 @@ import uuid
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
+
+http_requests_in_progress = Gauge(
+    "http_requests_in_progress",
+    "Number of HTTP requests currently being processed",
+)
+
 
 http_requests_total = Counter(
     "http_requests_total",
@@ -57,10 +63,14 @@ def apply_failure_mode() -> None:
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     request.state.request_id = request_id
 
     start_time = time.perf_counter()
+    http_requests_in_progress.inc()
 
     try:
         response = await call_next(request)
@@ -83,6 +93,8 @@ async def add_request_id(request: Request, call_next):
         ).observe(time.perf_counter() - start_time)
 
         raise
+    finally:
+        http_requests_in_progress.dec()
 
     response.headers["X-Request-ID"] = request_id
 
