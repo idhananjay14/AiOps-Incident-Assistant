@@ -23,3 +23,28 @@ class TaskResponse(BaseModel):
     completed: bool
     created_at: datetime
     updated_at: datetime
+
+class IncidentCreate(BaseModel):
+    incident_key: str
+    severity: str
+    title: str
+    description: str | None = None
+
+
+class IncidentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    incident_key: str
+    status: str
+    severity: str
+    title: str
+    description: str | None
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: datetime | None
+
+
+class IncidentTransition(BaseModel):
+    status: str
+    message: str | None = None

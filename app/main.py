@@ -3,10 +3,9 @@ import time
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from prometheus_client import Counter, Gauge, Histogram
 
 http_requests_in_progress = Gauge(
     "http_requests_in_progress",
@@ -45,13 +44,11 @@ http_requests_errors_total = Counter(
 )
 
 
+from app.config import settings
 from app.dependencies import get_db
+from app.logging import configure_logging
 from app.models import Task
 from app.schemas import TaskCreate, TaskResponse, TaskUpdate
-
-from app.config import settings
-from app.logging import configure_logging
-
 
 app = FastAPI(
     title="AIOps Incident Assistant",
@@ -165,7 +162,7 @@ def ready(db: Session = Depends(get_db)) -> dict[str, str]:
         db.execute(text("SELECT 1"))
         db_health.set(1)
         return {"status": "ready"}
-    except Exception:
+    except Exception:  # noqa: BLE001
         db_health.set(0)
         raise HTTPException(status_code=503, detail="Database unavailable")
 

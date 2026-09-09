@@ -1,11 +1,10 @@
 import time
 
+from prometheus_client import Histogram
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
-from prometheus_client import Histogram
-
 
 db_query_duration_seconds = Histogram(
     "db_query_duration_seconds",

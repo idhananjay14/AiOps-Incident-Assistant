@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     failure_mode: str = "normal"
-    database_url: str = "postgresql://aiops:aiops@localhost:5432/aiops"
+    database_url: str = "postgresql+psycopg://aiops:aiops@localhost:5432/aiops"
 
     model_config = SettingsConfigDict(
         env_file=".env",
