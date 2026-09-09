@@ -2,7 +2,13 @@ global:
   resolve_timeout: 1m
 
 route:
-  receiver: default
+  receiver: incident-api
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 4h
 
 receivers:
-  - name: default
+  - name: incident-api
+    webhook_configs:
+      - url: http://incident-api:8001/alerts
+        send_resolved: true
