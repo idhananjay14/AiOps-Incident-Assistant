@@ -4,8 +4,10 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.dependencies import get_db
 from app.evidence.collector import EvidenceCollector
+from app.evidence.prometheus import PrometheusClient
 from app.evidence.schemas import EvidenceBundle
 from app.models import Incident, IncidentEvent
 from app.schemas import IncidentCreate, IncidentResponse, IncidentTransition
@@ -127,6 +129,10 @@ def get_incident_evidence(
     db: Session = Depends(get_db),
 ) -> EvidenceBundle:
     try:
-        return EvidenceCollector(db).collect(incident_id)
+        prometheus = PrometheusClient(settings.prometheus_url)
+        return EvidenceCollector(
+            db,
+            prometheus=prometheus,
+        ).collect(incident_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
