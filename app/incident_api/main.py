@@ -5,6 +5,8 @@ from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_db
+from app.evidence.collector import EvidenceCollector
+from app.evidence.schemas import EvidenceBundle
 from app.models import Incident, IncidentEvent
 from app.schemas import IncidentCreate, IncidentResponse, IncidentTransition
 
@@ -117,3 +119,14 @@ def receive_alert(payload: dict[str, Any]) -> dict[str, str]:
         "status": "received",
         "alerts": str(len(payload.get("alerts", []))),
     }
+
+
+@app.get("/incidents/{incident_id}/evidence", response_model=EvidenceBundle)
+def get_incident_evidence(
+    incident_id: int,
+    db: Session = Depends(get_db),
+) -> EvidenceBundle:
+    try:
+        return EvidenceCollector(db).collect(incident_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
