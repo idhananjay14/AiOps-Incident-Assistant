@@ -80,3 +80,81 @@ def test_collects_incident_without_alerts(db_session):
 def test_raises_error_when_incident_does_not_exist(db_session):
     with pytest.raises(ValueError, match="Incident not found"):
         EvidenceCollector(db_session).collect(999)
+
+
+class FakePrometheusClient:
+    def __init__(self, values):
+        self.values = values
+        self.queries = []
+
+    def query(self, expression):
+        self.queries.append(expression)
+        return self.values.get(expression)
+
+
+def test_collects_prometheus_metric_evidence(db_session):
+    incident = Incident(
+        incident_key="INC-003",
+        status="INVESTIGATING",
+        severity="critical",
+        title="Application degradation",
+    )
+    db_session.add(incident)
+    db_session.commit()
+
+    metrics = {
+        "sum(rate(http_requests_total[5m]))": 12.5,
+        (
+            "sum(rate(http_requests_errors_total[5m]))"
+            " / sum(rate(http_requests_total[5m]))"
+        ): 0.25,
+        (
+            "histogram_quantile("
+            "0.95, "
+            "sum by (le) (rate(http_request_duration_seconds_bucket[5m]))"
+            ")"
+        ): 1.8,
+        (
+            "histogram_quantile("
+            "0.95, "
+            "sum by (le) (rate(db_query_duration_seconds_bucket[5m]))"
+            ")"
+        ): 0.12,
+        "http_requests_in_progress": 3.0,
+        "app_health": 1.0,
+        "db_health": 1.0,
+    }
+
+    prometheus = FakePrometheusClient(metrics)
+
+    bundle = EvidenceCollector(
+        db_session,
+        prometheus=prometheus,
+    ).collect(incident.id)
+
+    assert len(bundle.metrics) == 7
+
+    evidence = {metric.name: metric for metric in bundle.metrics}
+
+    assert evidence["request_rate"].value == 12.5
+    assert evidence["request_rate"].unit == "requests/sec"
+
+    assert evidence["error_rate"].value == 0.25
+    assert evidence["error_rate"].unit == "ratio"
+
+    assert evidence["http_p95_latency"].value == 1.8
+    assert evidence["http_p95_latency"].unit == "seconds"
+
+    assert evidence["db_p95_latency"].value == 0.12
+    assert evidence["db_p95_latency"].unit == "seconds"
+
+    assert evidence["active_requests"].value == 3.0
+    assert evidence["active_requests"].unit == "requests"
+
+    assert evidence["app_health"].value == 1.0
+    assert evidence["app_health"].unit == "status"
+
+    assert evidence["db_health"].value == 1.0
+    assert evidence["db_health"].unit == "status"
+
+    assert len(prometheus.queries) == 7
