@@ -1,10 +1,14 @@
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.evidence.loki import LokiClient
 from app.evidence.prometheus import PrometheusClient
 from app.evidence.schemas import (
     AlertEvidence,
+    DeploymentEvidence,
     EvidenceBundle,
     IncidentEvidence,
     MetricEvidence,
@@ -100,6 +104,20 @@ class EvidenceCollector:
 
         log_evidence = []
 
+        deployment_evidence = DeploymentEvidence(
+            version=settings.deployment_version,
+            commit=settings.deployment_commit,
+            description=settings.deployment_description,
+        )
+
+        if settings.deployment_deployed_at:
+            try:
+                deployment_evidence.deployed_at = datetime.fromisoformat(
+                    settings.deployment_deployed_at
+                )
+            except ValueError:
+                deployment_evidence.deployed_at = None
+
         if self.loki is not None:
             log_evidence = self.loki.query(
                 '{service_name="app"} |= "request completed"'
@@ -121,4 +139,5 @@ class EvidenceCollector:
             alerts=alert_evidence,
             metrics=metric_evidence,
             logs=log_evidence,
+            deployment=deployment_evidence,
         )

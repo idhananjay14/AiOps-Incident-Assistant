@@ -210,3 +210,41 @@ def test_collects_loki_log_evidence(db_session):
     assert loki.queries == [
         ('{service_name="app"} |= "request completed"', 50)
     ]
+
+
+def test_collects_deployment_evidence(db_session, monkeypatch):
+    incident = Incident(
+        incident_key="INC-005",
+        status="INVESTIGATING",
+        severity="critical",
+        title="Recent deployment issue",
+    )
+    db_session.add(incident)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.evidence.collector.settings.deployment_version",
+        "1.2.3",
+    )
+    monkeypatch.setattr(
+        "app.evidence.collector.settings.deployment_commit",
+        "abc123",
+    )
+    monkeypatch.setattr(
+        "app.evidence.collector.settings.deployment_deployed_at",
+        "2026-09-12T10:30:00+00:00",
+    )
+    monkeypatch.setattr(
+        "app.evidence.collector.settings.deployment_description",
+        "Deploy application version 1.2.3",
+    )
+
+    bundle = EvidenceCollector(db_session).collect(incident.id)
+
+    assert bundle.deployment is not None
+    assert bundle.deployment.version == "1.2.3"
+    assert bundle.deployment.commit == "abc123"
+    assert bundle.deployment.deployed_at == datetime(
+        2026, 9, 12, 10, 30, tzinfo=UTC
+    )
+    assert bundle.deployment.description == "Deploy application version 1.2.3"
