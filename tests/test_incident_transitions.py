@@ -282,3 +282,94 @@ def test_rca_endpoint_returns_404_for_missing_incident(monkeypatch):
         app.dependency_overrides.clear()
         db.close()
         engine.dispose()
+
+
+def test_rca_endpoint_rejects_invalid_evidence_citation(monkeypatch):
+    from fastapi.testclient import TestClient
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.database import Base
+    from app.dependencies import get_db
+    from app.evidence.schemas import RCAConfidence, RCAEvidence, RCAResult
+    from app.incident_api.main import app
+    from app.models import RCA, Incident, IncidentEvent
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+
+    session_local = sessionmaker(bind=engine)
+    db = session_local()
+
+    incident = Incident(
+        incident_key="INC-005",
+        status="INVESTIGATING",
+        severity="critical",
+        title="High error rate",
+        description="Application errors increased.",
+    )
+    db.add(incident)
+    db.commit()
+    db.refresh(incident)
+
+    invalid_rca = RCAResult(
+        root_cause="Database failure",
+        confidence=RCAConfidence.HIGH,
+        evidence=[
+            RCAEvidence(
+                source="prometheus",
+                reference="nonexistent_metric",
+                reasoning="This metric does not exist in the evidence bundle.",
+            )
+        ],
+        impact="Task API requests are failing.",
+        recommended_action="Investigate the database",
+    )
+
+    class FakeRCAEngine:
+        def analyze(self, evidence):
+            return invalid_rca
+
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    monkeypatch.setattr(
+        "app.incident_api.main.OpenAIRCAEngine",
+        lambda: FakeRCAEngine(),
+    )
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        client = TestClient(app)
+        response = client.post(f"/incidents/{incident.id}/rca")
+
+        assert response.status_code == 422
+        assert "does not exist in the evidence bundle" in response.json()["detail"]
+
+        assert db.query(RCA).filter_by(incident_id=incident.id).count() == 0
+
+        db.refresh(incident)
+        assert incident.status == "INVESTIGATING"
+
+        assert (
+            db.query(IncidentEvent)
+            .filter_by(
+                incident_id=incident.id,
+                event_type="RCA_GENERATED",
+            )
+            .count()
+            == 0
+        )
+    finally:
+        app.dependency_overrides.clear()
+        db.close()
+        engine.dispose()
