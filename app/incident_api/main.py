@@ -18,10 +18,14 @@ from app.remediation.control import (
     ApprovalStatus,
     RemediationStatus,
     approve_remediation,
+    can_attempt_remediation,
+    record_failed_attempt,
 )
 from app.remediation.dry_run import dry_run
+from app.remediation.executor import ControlledExecutor
 from app.remediation.policy import validate_action
 from app.remediation.schemas import RemediationRequest
+from app.remediation.verifier import verify_service
 from app.schemas import (
     IncidentCreate,
     IncidentResponse,
@@ -265,6 +269,170 @@ def approve_incident_remediation(
             "remediation_id": remediation.id,
             "action": remediation.action,
             "approval_status": remediation.approval_status,
+            "status": remediation.status,
+        },
+    )
+    db.add(event)
+
+    db.commit()
+    db.refresh(remediation)
+
+    return remediation
+
+
+@app.post(
+    "/remediations/{remediation_id}/execute",
+    response_model=RemediationResponse,
+)
+def execute_incident_remediation(
+    remediation_id: int,
+    db: Session = Depends(get_db),
+) -> Remediation:
+    remediation = db.get(Remediation, remediation_id)
+
+    if remediation is None:
+        raise HTTPException(status_code=404, detail="Remediation not found")
+
+    if remediation.approval_status != ApprovalStatus.APPROVED.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Remediation must be approved before execution",
+        )
+
+    if not can_attempt_remediation(remediation.attempt_count):
+        remediation.status = RemediationStatus.ESCALATED.value
+        db.commit()
+        raise HTTPException(
+            status_code=409,
+            detail="Remediation circuit breaker is open",
+        )
+
+    remediation.status = RemediationStatus.EXECUTING.value
+
+    event = IncidentEvent(
+        incident_id=remediation.incident_id,
+        event_type="REMEDIATION_EXECUTING",
+        message="Approved remediation execution started",
+        details={
+            "remediation_id": remediation.id,
+            "action": remediation.action,
+            "attempt_count": remediation.attempt_count + 1,
+        },
+    )
+    db.add(event)
+
+    incident = db.get(Incident, remediation.incident_id)
+    if incident is not None:
+        incident.status = "REMEDIATING"
+
+    db.commit()
+
+    request = RemediationRequest(
+        incident_id=remediation.incident_id,
+        action=remediation.action,
+        parameters=remediation.parameters,
+    )
+
+    try:
+        result = ControlledExecutor().execute(request)
+    except Exception as exc:
+        attempt_count, circuit_open = record_failed_attempt(
+            remediation.attempt_count
+        )
+        remediation.attempt_count = attempt_count
+        remediation.status = (
+            RemediationStatus.ESCALATED.value
+            if circuit_open
+            else RemediationStatus.FAILED.value
+        )
+        remediation.result = {
+            "success": False,
+            "error": str(exc),
+            "attempt_count": attempt_count,
+        }
+
+        if incident is not None:
+            incident.status = (
+                "ESCALATED" if circuit_open else "REMEDIATION_PENDING"
+            )
+
+        event = IncidentEvent(
+            incident_id=remediation.incident_id,
+            event_type="REMEDIATION_FAILED",
+            message=(
+                "Remediation failed and circuit breaker opened"
+                if circuit_open
+                else "Remediation execution failed"
+            ),
+            details={
+                "remediation_id": remediation.id,
+                "attempt_count": attempt_count,
+                "circuit_open": circuit_open,
+                "error": str(exc),
+            },
+        )
+        db.add(event)
+        db.commit()
+        db.refresh(remediation)
+
+        return remediation
+
+    remediation.attempt_count += 1
+    remediation.status = RemediationStatus.SUCCEEDED.value
+    remediation.result = result.model_dump()
+
+    service = remediation.parameters.get("service")
+    verification = verify_service(service)
+
+    remediation.result["verification"] = verification.model_dump()
+
+    if not verification.healthy:
+        circuit_open = not can_attempt_remediation(
+            remediation.attempt_count
+        )
+        remediation.status = (
+            RemediationStatus.ESCALATED.value
+            if circuit_open
+            else RemediationStatus.FAILED.value
+        )
+        remediation.result["attempt_count"] = remediation.attempt_count
+
+        if incident is not None:
+            incident.status = (
+                "ESCALATED" if circuit_open else "REMEDIATION_PENDING"
+            )
+
+        event = IncidentEvent(
+            incident_id=remediation.incident_id,
+            event_type="REMEDIATION_VERIFICATION_FAILED",
+            message=(
+                "Service recovery verification failed and circuit breaker opened"
+                if circuit_open
+                else "Service recovery verification failed"
+            ),
+            details={
+                "remediation_id": remediation.id,
+                "attempt_count": remediation.attempt_count,
+                "circuit_open": circuit_open,
+                "verification": verification.model_dump(),
+            },
+        )
+        db.add(event)
+        db.commit()
+        db.refresh(remediation)
+
+        return remediation
+
+    if incident is not None:
+        incident.status = "VERIFYING"
+
+    event = IncidentEvent(
+        incident_id=remediation.incident_id,
+        event_type="REMEDIATION_SUCCEEDED",
+        message="Remediation executed successfully and incident moved to verification",
+        details={
+            "remediation_id": remediation.id,
+            "attempt_count": remediation.attempt_count,
             "status": remediation.status,
         },
     )
