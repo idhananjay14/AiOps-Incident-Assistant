@@ -23,27 +23,69 @@ def build_evidence(**kwargs):
     )
 
 
+def metric(name, value):
+    return MetricEvidence(
+        name=name,
+        query=f"{name}_query",
+        value=value,
+    )
+
+
 def test_confidence_is_low_with_only_incident():
     evidence = build_evidence()
 
     assert calculate_confidence(evidence) == RCAConfidence.LOW
 
 
-def test_confidence_is_medium_with_single_metric_and_no_context():
+def test_confidence_is_low_with_healthy_metrics():
     evidence = build_evidence(
         metrics=[
-            MetricEvidence(
-                name="error_rate",
-                query="error_rate_query",
-                value=0.8,
-            )
+            metric("error_rate", 0.01),
+            metric("http_p95_latency", 0.2),
+            metric("app_health", 1.0),
+            metric("db_health", 1.0),
         ],
+    )
+
+    assert calculate_confidence(evidence) == RCAConfidence.LOW
+
+
+def test_high_error_rate_is_medium():
+    evidence = build_evidence(
+        metrics=[metric("error_rate", 0.25)],
     )
 
     assert calculate_confidence(evidence) == RCAConfidence.MEDIUM
 
 
-def test_confidence_is_high_with_alert_and_matching_metric():
+def test_high_latency_is_medium():
+    evidence = build_evidence(
+        metrics=[metric("http_p95_latency", 1.8)],
+    )
+
+    assert calculate_confidence(evidence) == RCAConfidence.MEDIUM
+
+
+def test_database_unavailable_is_medium():
+    evidence = build_evidence(
+        metrics=[metric("db_health", 0.0)],
+    )
+
+    assert calculate_confidence(evidence) == RCAConfidence.MEDIUM
+
+
+def test_two_operational_signals_are_high():
+    evidence = build_evidence(
+        metrics=[
+            metric("error_rate", 0.25),
+            metric("http_p95_latency", 1.8),
+        ],
+    )
+
+    assert calculate_confidence(evidence) == RCAConfidence.HIGH
+
+
+def test_alert_and_matching_metric_are_high():
     evidence = build_evidence(
         alerts=[
             AlertEvidence(
@@ -53,26 +95,16 @@ def test_confidence_is_high_with_alert_and_matching_metric():
             )
         ],
         metrics=[
-            MetricEvidence(
-                name="error_rate",
-                query="error_rate_query",
-                value=0.8,
-            )
+            metric("error_rate", 0.25),
         ],
     )
 
     assert calculate_confidence(evidence) == RCAConfidence.HIGH
 
 
-def test_confidence_is_high_with_metric_and_log():
+def test_operational_signal_with_logs_is_high():
     evidence = build_evidence(
-        metrics=[
-            MetricEvidence(
-                name="error_rate",
-                query="error_rate_query",
-                value=0.8,
-            )
-        ],
+        metrics=[metric("error_rate", 0.25)],
         logs=[
             LogEvidence(message="Application error"),
         ],
@@ -81,7 +113,7 @@ def test_confidence_is_high_with_metric_and_log():
     assert calculate_confidence(evidence) == RCAConfidence.HIGH
 
 
-def test_deployment_context_alone_does_not_create_high_confidence():
+def test_deployment_context_alone_does_not_create_confidence():
     evidence = build_evidence(
         deployment=DeploymentEvidence(
             version="0.1.0",
@@ -89,4 +121,4 @@ def test_deployment_context_alone_does_not_create_high_confidence():
         ),
     )
 
-    assert calculate_confidence(evidence) == RCAConfidence.MEDIUM
+    assert calculate_confidence(evidence) == RCAConfidence.LOW

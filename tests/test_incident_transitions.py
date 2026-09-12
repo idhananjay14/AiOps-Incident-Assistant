@@ -28,7 +28,7 @@ def test_invalid_transition_is_not_allowed():
     assert "OPEN" not in INCIDENT_TRANSITIONS["RESOLVED"]
 
 
-def test_evidence_endpoint_returns_incident_evidence():
+def test_evidence_endpoint_returns_incident_evidence(monkeypatch):
     from datetime import UTC, datetime
 
     from fastapi.testclient import TestClient
@@ -38,6 +38,7 @@ def test_evidence_endpoint_returns_incident_evidence():
 
     from app.database import Base
     from app.dependencies import get_db
+    from app.evidence.schemas import EvidenceBundle, IncidentEvidence
     from app.incident_api.main import app
     from app.models import Alert, Incident
 
@@ -83,6 +84,40 @@ def test_evidence_endpoint_returns_incident_evidence():
             pass
 
     app.dependency_overrides[get_db] = override_get_db
+    class FakeEvidenceCollector:
+        def __init__(self, collector_db, *args, **kwargs):
+            self.db = collector_db
+
+        def collect(self, incident_id):
+            return EvidenceBundle(
+                incident=IncidentEvidence(
+                    incident_id=incident_id,
+                    incident_key="INC-003",
+                    status="OPEN",
+                    severity="critical",
+                    title="High error rate",
+                    description="Application errors increased.",
+                ),
+                alerts=[
+                    {
+                        "alert_name": alert.alert_name,
+                        "status": alert.status,
+                        "severity": alert.severity,
+                        "summary": alert.summary,
+                        "description": alert.description,
+                        "labels": alert.labels,
+                        "annotations": alert.annotations,
+                        "starts_at": alert.starts_at,
+                        "ends_at": alert.ends_at,
+                    }
+                    for alert in self.db.query(Alert).all()
+                ],
+            )
+
+    monkeypatch.setattr(
+        "app.incident_api.main.EvidenceCollector",
+        FakeEvidenceCollector,
+    )
 
     try:
         client = TestClient(app)
@@ -150,7 +185,7 @@ def test_rca_endpoint_returns_structured_rca(monkeypatch):
 
     from app.database import Base
     from app.dependencies import get_db
-    from app.evidence.schemas import RCAConfidence, RCAResult
+    from app.evidence.schemas import EvidenceBundle, IncidentEvidence, RCAConfidence, RCAResult
     from app.incident_api.main import app
     from app.models import Incident
 
@@ -197,6 +232,24 @@ def test_rca_endpoint_returns_structured_rca(monkeypatch):
         "app.incident_api.main.OpenAIRCAEngine",
         lambda: FakeRCAEngine(),
     )
+    monkeypatch.setattr(
+        "app.incident_api.main.EvidenceCollector",
+        lambda *args, **kwargs: type(
+            "FakeEvidenceCollector",
+            (),
+            {
+                "collect": lambda self, incident_id: EvidenceBundle(
+                    incident=IncidentEvidence(
+                        incident_id=incident_id,
+                        incident_key="INC-004",
+                        status="INVESTIGATING",
+                        severity="critical",
+                        title="High error rate",
+                    )
+                )
+            },
+        )(),
+    )
 
     app.dependency_overrides[get_db] = override_get_db
 
@@ -209,7 +262,7 @@ def test_rca_endpoint_returns_structured_rca(monkeypatch):
         data = response.json()
 
         assert data["root_cause"] == "Application error rate increased"
-        assert data["confidence"] == "high"
+        assert data["confidence"] == "low"
         assert data["impact"] == "Task API requests are failing."
         assert data["recommended_action"] == (
             "Investigate the application error path"
@@ -219,7 +272,7 @@ def test_rca_endpoint_returns_structured_rca(monkeypatch):
 
         stored_rca = db.query(RCA).filter_by(incident_id=incident.id).one()
         assert stored_rca.root_cause == "Application error rate increased"
-        assert stored_rca.confidence == "high"
+        assert stored_rca.confidence == "low"
         assert stored_rca.impact == "Task API requests are failing."
         assert stored_rca.recommended_action == (
             "Investigate the application error path"
@@ -237,7 +290,7 @@ def test_rca_endpoint_returns_structured_rca(monkeypatch):
             .one()
         )
         assert event.message == "Root cause analysis generated"
-        assert event.details["confidence"] == "high"
+        assert event.details["confidence"] == "low"
     finally:
         app.dependency_overrides.clear()
         db.close()
@@ -292,7 +345,13 @@ def test_rca_endpoint_rejects_invalid_evidence_citation(monkeypatch):
 
     from app.database import Base
     from app.dependencies import get_db
-    from app.evidence.schemas import RCAConfidence, RCAEvidence, RCAResult
+    from app.evidence.schemas import (
+        EvidenceBundle,
+        IncidentEvidence,
+        RCAConfidence,
+        RCAEvidence,
+        RCAResult,
+    )
     from app.incident_api.main import app
     from app.models import RCA, Incident, IncidentEvent
 
@@ -344,6 +403,24 @@ def test_rca_endpoint_rejects_invalid_evidence_citation(monkeypatch):
     monkeypatch.setattr(
         "app.incident_api.main.OpenAIRCAEngine",
         lambda: FakeRCAEngine(),
+    )
+    monkeypatch.setattr(
+        "app.incident_api.main.EvidenceCollector",
+        lambda *args, **kwargs: type(
+            "FakeEvidenceCollector",
+            (),
+            {
+                "collect": lambda self, incident_id: EvidenceBundle(
+                    incident=IncidentEvidence(
+                        incident_id=incident_id,
+                        incident_key="INC-005",
+                        status="INVESTIGATING",
+                        severity="critical",
+                        title="High error rate",
+                    )
+                )
+            },
+        )(),
     )
 
     app.dependency_overrides[get_db] = override_get_db

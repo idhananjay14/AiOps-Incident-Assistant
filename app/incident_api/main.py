@@ -11,6 +11,7 @@ from app.evidence.loki import LokiClient
 from app.evidence.prometheus import PrometheusClient
 from app.evidence.schemas import EvidenceBundle, RCAResult
 from app.models import RCA, Incident, IncidentEvent
+from app.rca.confidence import calculate_confidence
 from app.rca.openai_engine import OpenAIRCAEngine
 from app.rca.validator import validate_rca
 from app.schemas import IncidentCreate, IncidentResponse, IncidentTransition
@@ -166,10 +167,13 @@ def generate_incident_rca(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    confidence = calculate_confidence(evidence)
+    rca_result = rca_result.model_copy(update={"confidence": confidence})
+
     rca = RCA(
         incident_id=incident_id,
         root_cause=rca_result.root_cause,
-        confidence=rca_result.confidence.value,
+        confidence=confidence.value,
         evidence=[item.model_dump() for item in rca_result.evidence],
         impact=rca_result.impact,
         contributing_factors=rca_result.contributing_factors,
@@ -187,7 +191,7 @@ def generate_incident_rca(
             event_type="RCA_GENERATED",
             message="Root cause analysis generated",
             details={
-                "confidence": rca_result.confidence.value,
+                "confidence": confidence.value,
             },
         )
         db.add(event)

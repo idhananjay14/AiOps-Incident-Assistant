@@ -1,53 +1,62 @@
 from app.evidence.schemas import EvidenceBundle, RCAConfidence
 
+ERROR_RATE_THRESHOLD = 0.10
+HTTP_P95_LATENCY_THRESHOLD = 1.0
+
 
 def calculate_confidence(evidence: EvidenceBundle) -> RCAConfidence:
-    """Calculate RCA confidence from corroborating operational evidence."""
-    has_alert = bool(evidence.alerts)
-    metric_names = {metric.name for metric in evidence.metrics}
-    has_logs = bool(evidence.logs)
-    has_deployment = evidence.deployment is not None
+    """Calculate RCA confidence from incident-relevant operational evidence."""
+    metrics = {metric.name: metric.value for metric in evidence.metrics}
 
     has_error_signal = (
-        "error_rate" in metric_names
-        or any(alert.alert_name == "HighErrorRate" for alert in evidence.alerts)
+        metrics.get("error_rate") is not None
+        and metrics["error_rate"] > ERROR_RATE_THRESHOLD
+    ) or any(
+        alert.alert_name == "HighErrorRate" for alert in evidence.alerts
     )
 
     has_latency_signal = (
-        "http_p95_latency" in metric_names
-        or "db_p95_latency" in metric_names
-        or any(alert.alert_name == "HighLatency" for alert in evidence.alerts)
+        metrics.get("http_p95_latency") is not None
+        and metrics["http_p95_latency"] > HTTP_P95_LATENCY_THRESHOLD
+    ) or any(
+        alert.alert_name == "HighLatency" for alert in evidence.alerts
     )
 
-    has_health_signal = (
-        "app_health" in metric_names
-        or "db_health" in metric_names
-        or any(
-            alert.alert_name in {"ServiceDown", "DatabaseUnavailable"}
-            for alert in evidence.alerts
-        )
+    has_app_health_signal = (
+        metrics.get("app_health") is not None
+        and metrics["app_health"] == 0
+    ) or any(
+        alert.alert_name == "ServiceDown" for alert in evidence.alerts
+    )
+
+    has_db_health_signal = (
+        metrics.get("db_health") is not None
+        and metrics["db_health"] == 0
+    ) or any(
+        alert.alert_name == "DatabaseUnavailable"
+        for alert in evidence.alerts
     )
 
     operational_signals = sum(
         [
             has_error_signal,
             has_latency_signal,
-            has_health_signal,
+            has_app_health_signal,
+            has_db_health_signal,
         ]
     )
 
-    corroboration = sum(
-        [
-            has_alert and bool(metric_names),
-            bool(metric_names) and has_logs,
-            has_alert and has_logs,
-        ]
-    )
+    has_alert = bool(evidence.alerts)
+    has_logs = bool(evidence.logs)
+    has_operational_signal = operational_signals > 0
 
-    if corroboration > 0:
+    if operational_signals >= 2:
         return RCAConfidence.HIGH
 
-    if operational_signals > 0 or has_deployment:
+    if has_operational_signal and (has_alert or has_logs):
+        return RCAConfidence.HIGH
+
+    if has_operational_signal:
         return RCAConfidence.MEDIUM
 
     return RCAConfidence.LOW
