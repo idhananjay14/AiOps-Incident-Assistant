@@ -9,8 +9,9 @@ from app.dependencies import get_db
 from app.evidence.collector import EvidenceCollector
 from app.evidence.loki import LokiClient
 from app.evidence.prometheus import PrometheusClient
-from app.evidence.schemas import EvidenceBundle
-from app.models import Incident, IncidentEvent
+from app.evidence.schemas import EvidenceBundle, RCAResult
+from app.models import RCA, Incident, IncidentEvent
+from app.rca.openai_engine import OpenAIRCAEngine
 from app.schemas import IncidentCreate, IncidentResponse, IncidentTransition
 
 INCIDENT_STATUSES = (
@@ -139,3 +140,52 @@ def get_incident_evidence(
         ).collect(incident_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/incidents/{incident_id}/rca", response_model=RCAResult)
+def generate_incident_rca(
+    incident_id: int,
+    db: Session = Depends(get_db),
+) -> RCAResult:
+    try:
+        prometheus = PrometheusClient(settings.prometheus_url)
+        loki = LokiClient(settings.loki_url)
+        evidence = EvidenceCollector(
+            db,
+            prometheus=prometheus,
+            loki=loki,
+        ).collect(incident_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    rca_result = OpenAIRCAEngine().analyze(evidence)
+
+    rca = RCA(
+        incident_id=incident_id,
+        root_cause=rca_result.root_cause,
+        confidence=rca_result.confidence.value,
+        evidence=[item.model_dump() for item in rca_result.evidence],
+        impact=rca_result.impact,
+        contributing_factors=rca_result.contributing_factors,
+        recommended_action=rca_result.recommended_action,
+        verification_steps=rca_result.verification_steps,
+    )
+    db.add(rca)
+
+    incident = db.get(Incident, incident_id)
+    if incident is not None:
+        incident.status = "RCA_READY"
+
+        event = IncidentEvent(
+            incident_id=incident_id,
+            event_type="RCA_GENERATED",
+            message="Root cause analysis generated",
+            details={
+                "confidence": rca_result.confidence.value,
+            },
+        )
+        db.add(event)
+
+    db.commit()
+
+    return rca_result

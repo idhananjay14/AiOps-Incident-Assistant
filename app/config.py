@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     deployment_commit: str | None = None
     deployment_deployed_at: str | None = None
     deployment_description: str | None = None
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-5.5"
 
     model_config = SettingsConfigDict(
         env_file=".env",

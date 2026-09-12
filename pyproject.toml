@@ -11,6 +11,7 @@ dependencies = [
     "alembic",
     "python-json-logger",
     "prometheus-client",
+    "openai",
 ]
 requires-python = ">=3.12"
 

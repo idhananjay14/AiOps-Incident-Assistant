@@ -140,3 +140,145 @@ def test_evidence_endpoint_returns_404_for_missing_incident():
         app.dependency_overrides.clear()
         db.close()
         engine.dispose()
+
+
+def test_rca_endpoint_returns_structured_rca(monkeypatch):
+    from fastapi.testclient import TestClient
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.database import Base
+    from app.dependencies import get_db
+    from app.evidence.schemas import RCAConfidence, RCAResult
+    from app.incident_api.main import app
+    from app.models import Incident
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+
+    session_local = sessionmaker(bind=engine)
+    db = session_local()
+
+    incident = Incident(
+        incident_key="INC-004",
+        status="INVESTIGATING",
+        severity="critical",
+        title="High error rate",
+        description="Application errors increased.",
+    )
+    db.add(incident)
+    db.commit()
+    db.refresh(incident)
+
+    expected_rca = RCAResult(
+        root_cause="Application error rate increased",
+        confidence=RCAConfidence.HIGH,
+        impact="Task API requests are failing.",
+        recommended_action="Investigate the application error path",
+    )
+
+    class FakeRCAEngine:
+        def analyze(self, evidence):
+            assert evidence.incident.incident_key == "INC-004"
+            return expected_rca
+
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    monkeypatch.setattr(
+        "app.incident_api.main.OpenAIRCAEngine",
+        lambda: FakeRCAEngine(),
+    )
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        client = TestClient(app)
+        response = client.post(f"/incidents/{incident.id}/rca")
+
+        assert response.status_code == 200
+
+        data = response.json()
+
+        assert data["root_cause"] == "Application error rate increased"
+        assert data["confidence"] == "high"
+        assert data["impact"] == "Task API requests are failing."
+        assert data["recommended_action"] == (
+            "Investigate the application error path"
+        )
+
+        from app.models import RCA, IncidentEvent
+
+        stored_rca = db.query(RCA).filter_by(incident_id=incident.id).one()
+        assert stored_rca.root_cause == "Application error rate increased"
+        assert stored_rca.confidence == "high"
+        assert stored_rca.impact == "Task API requests are failing."
+        assert stored_rca.recommended_action == (
+            "Investigate the application error path"
+        )
+
+        db.refresh(incident)
+        assert incident.status == "RCA_READY"
+
+        event = (
+            db.query(IncidentEvent)
+            .filter_by(
+                incident_id=incident.id,
+                event_type="RCA_GENERATED",
+            )
+            .one()
+        )
+        assert event.message == "Root cause analysis generated"
+        assert event.details["confidence"] == "high"
+    finally:
+        app.dependency_overrides.clear()
+        db.close()
+        engine.dispose()
+
+
+def test_rca_endpoint_returns_404_for_missing_incident(monkeypatch):
+    from fastapi.testclient import TestClient
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.database import Base
+    from app.dependencies import get_db
+    from app.incident_api.main import app
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+
+    session_local = sessionmaker(bind=engine)
+    db = session_local()
+
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        client = TestClient(app)
+        response = client.post("/incidents/999/rca")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Incident not found"
+    finally:
+        app.dependency_overrides.clear()
+        db.close()
+        engine.dispose()

@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 
 from pydantic import BaseModel, Field
 
@@ -52,3 +53,25 @@ class EvidenceBundle(BaseModel):
     metrics: list[MetricEvidence] = Field(default_factory=list)
     logs: list[LogEvidence] = Field(default_factory=list)
     deployment: DeploymentEvidence | None = None
+
+
+class RCAConfidence(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class RCAEvidence(BaseModel):
+    source: str
+    reference: str
+    reasoning: str
+
+
+class RCAResult(BaseModel):
+    root_cause: str
+    confidence: RCAConfidence
+    evidence: list[RCAEvidence] = Field(default_factory=list)
+    impact: str
+    contributing_factors: list[str] = Field(default_factory=list)
+    recommended_action: str
+    verification_steps: list[str] = Field(default_factory=list)
