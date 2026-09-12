@@ -4,6 +4,7 @@ from app.remediation.policy import (
     ALLOWED_REMEDIATION_ACTIONS,
     RemediationAction,
     validate_action,
+    validate_service,
 )
 
 
@@ -39,3 +40,12 @@ def test_allowlisted_action_is_accepted(action):
 def test_unapproved_action_is_rejected(action):
     with pytest.raises(ValueError, match="not allowed"):
         validate_action(action)
+
+
+def test_validate_service_accepts_allowed_service():
+    assert validate_service("app") == "app"
+
+
+def test_validate_service_rejects_unapproved_service():
+    with pytest.raises(ValueError, match="service is not allowed"):
+        validate_service("postgres")

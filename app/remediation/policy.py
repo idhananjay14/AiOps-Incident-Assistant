@@ -16,3 +16,16 @@ def validate_action(action: str) -> RemediationAction:
         return RemediationAction(action)
     except ValueError as exc:
         raise ValueError(f"Remediation action is not allowed: {action}") from exc
+
+
+ALLOWED_REMEDIATION_SERVICES = frozenset({"app"})
+
+
+def validate_service(service: str) -> str:
+    """Validate that a remediation target is explicitly allowlisted."""
+    if service not in ALLOWED_REMEDIATION_SERVICES:
+        raise ValueError(
+            f"Remediation service is not allowed: {service}"
+        )
+
+    return service
