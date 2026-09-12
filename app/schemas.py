@@ -48,3 +48,23 @@ class IncidentResponse(BaseModel):
 class IncidentTransition(BaseModel):
     status: str
     message: str | None = None
+
+
+class RemediationCreate(BaseModel):
+    action: str
+    parameters: dict = {}
+
+
+class RemediationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    incident_id: int
+    action: str
+    status: str
+    parameters: dict
+    approval_status: str
+    attempt_count: int
+    result: dict
+    created_at: datetime
+    updated_at: datetime
