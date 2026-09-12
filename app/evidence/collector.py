@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.evidence.loki import LokiClient
 from app.evidence.prometheus import PrometheusClient
+from app.evidence.sanitizer import sanitize_mapping, sanitize_text
 from app.evidence.schemas import (
     AlertEvidence,
     DeploymentEvidence,
@@ -82,7 +83,11 @@ class EvidenceCollector:
             status=incident.status,
             severity=incident.severity,
             title=incident.title,
-            description=incident.description,
+            description=(
+                sanitize_text(incident.description)
+                if incident.description is not None
+                else None
+            ),
         )
 
         alert_evidence = [
@@ -90,10 +95,18 @@ class EvidenceCollector:
                 alert_name=alert.alert_name,
                 status=alert.status,
                 severity=alert.severity,
-                summary=alert.summary,
-                description=alert.description,
-                labels=alert.labels,
-                annotations=alert.annotations,
+                summary=(
+                    sanitize_text(alert.summary)
+                    if alert.summary is not None
+                    else None
+                ),
+                description=(
+                    sanitize_text(alert.description)
+                    if alert.description is not None
+                    else None
+                ),
+                labels=sanitize_mapping(alert.labels),
+                annotations=sanitize_mapping(alert.annotations),
                 starts_at=alert.starts_at,
                 ends_at=alert.ends_at,
             )
@@ -122,6 +135,36 @@ class EvidenceCollector:
             log_evidence = self.loki.query(
                 '{service_name="app"} |= "request completed"'
             )
+
+        log_evidence = [
+            log.model_copy(
+                update={
+                    "message": sanitize_text(log.message),
+                    "fields": sanitize_mapping(log.fields),
+                }
+            )
+            for log in log_evidence
+        ]
+
+        deployment_evidence = deployment_evidence.model_copy(
+            update={
+                "version": (
+                    sanitize_text(deployment_evidence.version)
+                    if deployment_evidence.version is not None
+                    else None
+                ),
+                "commit": (
+                    sanitize_text(deployment_evidence.commit)
+                    if deployment_evidence.commit is not None
+                    else None
+                ),
+                "description": (
+                    sanitize_text(deployment_evidence.description)
+                    if deployment_evidence.description is not None
+                    else None
+                ),
+            }
+        )
 
         if self.prometheus is not None:
             for name, query, unit in METRIC_QUERIES:

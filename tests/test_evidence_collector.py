@@ -248,3 +248,38 @@ def test_collects_deployment_evidence(db_session, monkeypatch):
         2026, 9, 12, 10, 30, tzinfo=UTC
     )
     assert bundle.deployment.description == "Deploy application version 1.2.3"
+
+
+def test_collector_sanitizes_alert_evidence(db_session):
+    incident = Incident(
+        incident_key="INC-006",
+        status="INVESTIGATING",
+        severity="critical",
+        title="Credential exposure test",
+        description="password=incident-secret",
+    )
+    db_session.add(incident)
+
+    alert = Alert(
+        alert_key="CredentialExposure",
+        alert_name="CredentialExposure",
+        status="firing",
+        severity="critical",
+        summary="api_key=alert-key",
+        description="Authorization: Bearer alert-token",
+        labels={"service": "task-api"},
+        annotations={"password": "annotation-secret"},
+        starts_at=datetime(2026, 9, 12, 10, 0, 0, tzinfo=UTC),
+    )
+    db_session.add(alert)
+    db_session.commit()
+
+    bundle = EvidenceCollector(db_session).collect(incident.id)
+
+    assert bundle.incident.description == "password=[REDACTED]"
+
+    evidence = bundle.alerts[0]
+    assert evidence.summary == "api_key=[REDACTED]"
+    assert evidence.description == "Authorization: Bearer [REDACTED]"
+    assert evidence.labels == {"service": "task-api"}
+    assert evidence.annotations == {"password": "[REDACTED]"}
