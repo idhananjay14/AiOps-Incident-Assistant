@@ -1,7 +1,6 @@
-import subprocess
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 
+import docker
 from pydantic import BaseModel, Field
 
 from app.remediation.policy import validate_action, validate_service
@@ -26,11 +25,11 @@ class RemediationExecutor(ABC):
 class ControlledExecutor(RemediationExecutor):
     def __init__(
         self,
-        runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
         timeout: int = 30,
+        docker_client=None,
     ) -> None:
-        self.runner = runner or subprocess.run
         self.timeout = timeout
+        self.docker_client = docker_client or docker.from_env()
 
     def execute(self, request: RemediationRequest) -> ExecutionResult:
         action = validate_action(request.action.value)
@@ -49,31 +48,30 @@ class ControlledExecutor(RemediationExecutor):
 
         validate_service(service)
 
-        command = build_restart_command(service)
-        result = self.runner(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=self.timeout,
-            shell=False,
+        containers = self.docker_client.containers.list(
+            all=True,
+            filters={
+                "label": [
+                    "com.docker.compose.project=aiops-incident-assistant",
+                    f"com.docker.compose.service={service}",
+                ]
+            },
         )
 
-        if result.returncode != 0:
-            return ExecutionResult(
-                success=False,
-                action=action.value,
-                service=service,
-                parameters=request.parameters,
-                message=result.stderr.strip() or "Remediation command failed",
+        if len(containers) != 1:
+            raise ValueError(
+                f"Expected exactly one remediation target for service: {service}"
             )
+
+        container = containers[0]
+        container.restart(timeout=self.timeout)
 
         return ExecutionResult(
             success=True,
             action=action.value,
             service=service,
             parameters=request.parameters,
-            message=result.stdout.strip() or "Remediation executed successfully",
+            message=f"Remediation executed successfully for {service}",
         )
 
 

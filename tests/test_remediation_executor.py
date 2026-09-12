@@ -5,13 +5,24 @@ from app.remediation.schemas import RemediationRequest
 
 
 def test_controlled_executor_returns_execution_result():
+    class FakeContainer:
+        def restart(self, timeout):
+            pass
+
+    class FakeContainers:
+        def list(self, **kwargs):
+            return [FakeContainer()]
+
+    class FakeDockerClient:
+        containers = FakeContainers()
+
     request = RemediationRequest(
         incident_id=1,
         action="restart_service",
         parameters={"service": "app"},
     )
 
-    result = ControlledExecutor().execute(request)
+    result = ControlledExecutor(docker_client=FakeDockerClient()).execute(request)
 
     assert isinstance(result, ExecutionResult)
     assert result.success is True
@@ -69,18 +80,20 @@ def test_build_restart_command_rejects_unapproved_service():
         build_restart_command("postgres")
 
 
-def test_controlled_executor_runs_fixed_restart_command():
+def test_controlled_executor_restarts_allowed_container():
     calls = []
 
-    def fake_runner(command, **kwargs):
-        calls.append((command, kwargs))
+    class FakeContainer:
+        def restart(self, timeout):
+            calls.append(timeout)
 
-        class Result:
-            returncode = 0
-            stdout = "app restarted"
-            stderr = ""
+    class FakeContainers:
+        def list(self, **kwargs):
+            calls.append(kwargs)
+            return [FakeContainer()]
 
-        return Result()
+    class FakeDockerClient:
+        containers = FakeContainers()
 
     request = RemediationRequest(
         incident_id=1,
@@ -88,23 +101,27 @@ def test_controlled_executor_runs_fixed_restart_command():
         parameters={"service": "app"},
     )
 
-    result = ControlledExecutor(runner=fake_runner).execute(request)
+    result = ControlledExecutor(docker_client=FakeDockerClient()).execute(request)
 
     assert result.success is True
-    assert result.message == "app restarted"
-    assert calls[0][0] == ["docker", "compose", "restart", "app"]
-    assert calls[0][1]["shell"] is False
-    assert calls[0][1]["timeout"] == 30
+    assert result.action == "restart_service"
+    assert result.service == "app"
+    assert result.message == "Remediation executed successfully for app"
+    assert calls[0]["all"] is True
+    assert calls[0]["filters"]["label"] == [
+        "com.docker.compose.project=aiops-incident-assistant",
+        "com.docker.compose.service=app",
+    ]
+    assert calls[1] == 30
 
 
-def test_controlled_executor_reports_command_failure():
-    def fake_runner(command, **kwargs):
-        class Result:
-            returncode = 1
-            stdout = ""
-            stderr = "restart failed"
+def test_controlled_executor_rejects_multiple_containers():
+    class FakeContainers:
+        def list(self, **kwargs):
+            return [object(), object()]
 
-        return Result()
+    class FakeDockerClient:
+        containers = FakeContainers()
 
     request = RemediationRequest(
         incident_id=1,
@@ -112,17 +129,13 @@ def test_controlled_executor_reports_command_failure():
         parameters={"service": "app"},
     )
 
-    result = ControlledExecutor(runner=fake_runner).execute(request)
-
-    assert result.success is False
-    assert result.message == "restart failed"
+    with pytest.raises(ValueError, match="Expected exactly one remediation target"):
+        ControlledExecutor(docker_client=FakeDockerClient()).execute(request)
 
 
 def test_controlled_executor_does_not_execute_other_actions():
-    calls = []
-
-    def fake_runner(command, **kwargs):
-        calls.append(command)
+    class FakeDockerClient:
+        containers = None
 
     request = RemediationRequest(
         incident_id=1,
@@ -131,6 +144,4 @@ def test_controlled_executor_does_not_execute_other_actions():
     )
 
     with pytest.raises(ValueError, match="not executable yet"):
-        ControlledExecutor(runner=fake_runner).execute(request)
-
-    assert calls == []
+        ControlledExecutor(docker_client=FakeDockerClient()).execute(request)
