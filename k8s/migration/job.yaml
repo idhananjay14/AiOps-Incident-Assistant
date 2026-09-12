@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migration
+  namespace: aiops
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: db-migration
+    spec:
+      enableServiceLinks: false
+      restartPolicy: Never
+      containers:
+        - name: db-migration
+          image: aiops-incident-assistant-app:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://aiops:aiops@postgres:5432/aiops"
+          command:
+            - alembic
+            - upgrade
+            - head

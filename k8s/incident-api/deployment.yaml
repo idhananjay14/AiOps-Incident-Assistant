@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incident-api
+  namespace: aiops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: incident-api
+  template:
+    metadata:
+      labels:
+        app: incident-api
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: incident-api
+          image: aiops-incident-assistant-app:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8001
+          env:
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://aiops:aiops@postgres:5432/aiops"
+            - name: PROMETHEUS_URL
+              value: "http://prometheus:9090"
+            - name: LOKI_URL
+              value: "http://loki:3100"
+          command:
+            - uvicorn
+            - app.incident_api.main:app
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8001"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: incident-api
+  namespace: aiops
+spec:
+  selector:
+    app: incident-api
+  ports:
+    - port: 8001
+      targetPort: 8001
+  type: ClusterIP
