@@ -46,6 +46,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://aiops:aiops@postgres:5432/aiops
       PROMETHEUS_URL: http://prometheus:9090
+      LOKI_URL: http://loki:3100
     command:
       - uvicorn
       - app.incident_api.main:app

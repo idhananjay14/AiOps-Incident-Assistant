@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     failure_mode: str = "normal"
     database_url: str = "postgresql+psycopg://aiops:aiops@localhost:5432/aiops"
     prometheus_url: str = "http://localhost:9090"
+    loki_url: str = "http://localhost:3100"
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -158,3 +158,55 @@ def test_collects_prometheus_metric_evidence(db_session):
     assert evidence["db_health"].unit == "status"
 
     assert len(prometheus.queries) == 7
+
+
+class FakeLokiClient:
+    def __init__(self, logs):
+        self.logs = logs
+        self.queries = []
+
+    def query(self, log_query, limit=50):
+        self.queries.append((log_query, limit))
+        return self.logs
+
+
+def test_collects_loki_log_evidence(db_session):
+    incident = Incident(
+        incident_key="INC-004",
+        status="INVESTIGATING",
+        severity="critical",
+        title="Application errors",
+    )
+    db_session.add(incident)
+    db_session.commit()
+
+    logs = [
+        {
+            "timestamp": datetime(2026, 9, 11, 18, 56, 24, tzinfo=UTC),
+            "level": "INFO",
+            "message": '{"message":"request completed"}',
+            "fields": {
+                "service_name": "app",
+            },
+        }
+    ]
+
+    from app.evidence.schemas import LogEvidence
+
+    loki = FakeLokiClient(
+        [LogEvidence(**log) for log in logs]
+    )
+
+    bundle = EvidenceCollector(
+        db_session,
+        loki=loki,
+    ).collect(incident.id)
+
+    assert len(bundle.logs) == 1
+    assert bundle.logs[0].level == "INFO"
+    assert bundle.logs[0].message == '{"message":"request completed"}'
+    assert bundle.logs[0].fields["service_name"] == "app"
+
+    assert loki.queries == [
+        ('{service_name="app"} |= "request completed"', 50)
+    ]

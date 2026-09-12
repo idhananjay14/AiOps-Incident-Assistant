@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.evidence.loki import LokiClient
 from app.evidence.prometheus import PrometheusClient
 from app.evidence.schemas import (
     AlertEvidence,
@@ -55,9 +56,11 @@ class EvidenceCollector:
         self,
         db: Session,
         prometheus: PrometheusClient | None = None,
+        loki: LokiClient | None = None,
     ):
         self.db = db
         self.prometheus = prometheus
+        self.loki = loki
 
     def collect(self, incident_id: int) -> EvidenceBundle:
         incident = self.db.get(Incident, incident_id)
@@ -95,6 +98,13 @@ class EvidenceCollector:
 
         metric_evidence = []
 
+        log_evidence = []
+
+        if self.loki is not None:
+            log_evidence = self.loki.query(
+                '{service_name="app"} |= "request completed"'
+            )
+
         if self.prometheus is not None:
             for name, query, unit in METRIC_QUERIES:
                 metric_evidence.append(
@@ -110,4 +120,5 @@ class EvidenceCollector:
             incident=incident_evidence,
             alerts=alert_evidence,
             metrics=metric_evidence,
+            logs=log_evidence,
         )

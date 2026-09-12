@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.dependencies import get_db
 from app.evidence.collector import EvidenceCollector
+from app.evidence.loki import LokiClient
 from app.evidence.prometheus import PrometheusClient
 from app.evidence.schemas import EvidenceBundle
 from app.models import Incident, IncidentEvent
@@ -130,9 +131,11 @@ def get_incident_evidence(
 ) -> EvidenceBundle:
     try:
         prometheus = PrometheusClient(settings.prometheus_url)
+        loki = LokiClient(settings.loki_url)
         return EvidenceCollector(
             db,
             prometheus=prometheus,
+            loki=loki,
         ).collect(incident_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
