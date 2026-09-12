@@ -68,3 +68,7 @@ class RemediationResponse(BaseModel):
     result: dict
     created_at: datetime
     updated_at: datetime
+
+
+class RemediationApproval(BaseModel):
+    approved: bool = True

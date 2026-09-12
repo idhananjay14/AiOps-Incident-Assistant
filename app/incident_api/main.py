@@ -14,7 +14,11 @@ from app.models import RCA, Incident, IncidentEvent, Remediation
 from app.rca.confidence import calculate_confidence
 from app.rca.openai_engine import OpenAIRCAEngine
 from app.rca.validator import validate_rca
-from app.remediation.control import ApprovalStatus, RemediationStatus
+from app.remediation.control import (
+    ApprovalStatus,
+    RemediationStatus,
+    approve_remediation,
+)
 from app.remediation.dry_run import dry_run
 from app.remediation.policy import validate_action
 from app.remediation.schemas import RemediationRequest
@@ -22,6 +26,7 @@ from app.schemas import (
     IncidentCreate,
     IncidentResponse,
     IncidentTransition,
+    RemediationApproval,
     RemediationCreate,
     RemediationResponse,
 )
@@ -213,6 +218,54 @@ def create_remediation(
             "action": action.value,
             "status": remediation.status,
             "approval_status": remediation.approval_status,
+        },
+    )
+    db.add(event)
+
+    db.commit()
+    db.refresh(remediation)
+
+    return remediation
+
+@app.post(
+    "/remediations/{remediation_id}/approve",
+    response_model=RemediationResponse,
+)
+def approve_incident_remediation(
+    remediation_id: int,
+    payload: RemediationApproval,
+    db: Session = Depends(get_db),
+) -> Remediation:
+    remediation = db.get(Remediation, remediation_id)
+
+    if remediation is None:
+        raise HTTPException(status_code=404, detail="Remediation not found")
+
+    if not payload.approved:
+        raise HTTPException(
+            status_code=400,
+            detail="Remediation approval must be true",
+        )
+
+    try:
+        approval_status = approve_remediation(
+            ApprovalStatus(remediation.approval_status)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    remediation.approval_status = approval_status.value
+    remediation.status = RemediationStatus.APPROVED.value
+
+    event = IncidentEvent(
+        incident_id=remediation.incident_id,
+        event_type="REMEDIATION_APPROVED",
+        message="Remediation approved and ready for controlled execution",
+        details={
+            "remediation_id": remediation.id,
+            "action": remediation.action,
+            "approval_status": remediation.approval_status,
+            "status": remediation.status,
         },
     )
     db.add(event)
