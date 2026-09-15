@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config
+  namespace: aiops
+data:
+  config.alloy: |
+    local.file_match "pod_logs" {
+      path_targets = [
+        {
+          __path__ = "/var/log/pods/*/*/*.log",
+        },
+      ]
+    }
+
+    loki.source.file "pod_logs" {
+      targets    = local.file_match.pod_logs.targets
+      forward_to = [loki.relabel.service_names.receiver]
+    }
+
+    loki.relabel "service_names" {
+      forward_to = [loki.write.default.receiver]
+
+      rule {
+        source_labels = ["filename"]
+        regex         = "^/var/log/pods/[^_]+_(app)-[^_]+_.*"
+        target_label  = "service_name"
+        replacement   = "$1"
+      }
+
+      rule {
+        source_labels = ["filename"]
+        regex         = "^/var/log/pods/[^_]+_(incident-api)-[^_]+_.*"
+        target_label  = "service_name"
+        replacement   = "$1"
+      }
+
+      rule {
+        source_labels = ["filename"]
+        regex         = "^/var/log/pods/[^_]+_(postgres)-[^_]+_.*"
+        target_label  = "service_name"
+        replacement   = "$1"
+      }
+
+      rule {
+        source_labels = ["filename"]
+        regex         = "^/var/log/pods/[^_]+_(prometheus)-[^_]+_.*"
+        target_label  = "service_name"
+        replacement   = "$1"
+      }
+
+      rule {
+        source_labels = ["filename"]
+        regex         = "^/var/log/pods/[^_]+_(loki)-[^_]+_.*"
+        target_label  = "service_name"
+        replacement   = "$1"
+      }
+
+      rule {
+        source_labels = ["filename"]
+        regex         = "^/var/log/pods/[^_]+_(alloy)-[^_]+_.*"
+        target_label  = "service_name"
+        replacement   = "$1"
+      }
+    }
+
+    loki.write "default" {
+      endpoint {
+        url = "http://loki:3100/loki/api/v1/push"
+      }
+    }

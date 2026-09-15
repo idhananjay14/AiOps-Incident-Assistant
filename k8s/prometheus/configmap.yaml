@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: aiops
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+
+    rule_files:
+      - "/etc/prometheus/alerts.yml"
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+                - "alertmanager:9093"
+
+    scrape_configs:
+      - job_name: "aiops-app"
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - "app:8000"
+
+  alerts.yml: |
+    groups:
+      - name: aiops-app
+        rules:
+          - alert: HighErrorRate
+            expr: |
+              sum(rate(http_requests_errors_total[5m]))
+                / sum(rate(http_requests_total[5m])) > 0.10
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: High application error rate
+              description: Application error rate is above 10% for 2 minutes.
+
+          - alert: HighLatency
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (le) (rate(http_request_duration_seconds_bucket[5m]))
+              ) > 1
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: High application latency
+              description: Application p95 latency is above 1 second for 2 minutes.
+
+          - alert: ServiceDown
+            expr: up{job="aiops-app"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: Application service is down
+              description: Prometheus cannot scrape the application.
+
+          - alert: DatabaseUnavailable
+            expr: db_health == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: Database is unavailable
+              description: Application database health is reporting unavailable.
