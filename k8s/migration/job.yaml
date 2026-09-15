@@ -14,8 +14,12 @@ spec:
       restartPolicy: Never
       containers:
         - name: db-migration
-          image: aiops-incident-assistant-app:latest
+          image: aiops-incident-assistant-app:security
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
           env:
             - name: POSTGRES_PASSWORD
               valueFrom:
