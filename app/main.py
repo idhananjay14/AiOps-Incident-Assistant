@@ -68,6 +68,7 @@ def apply_failure_mode() -> None:
         raise HTTPException(status_code=500, detail="Injected failure")
 
     if settings.failure_mode == "database_failure":
+        db_health.set(0)
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 
@@ -160,7 +161,8 @@ def health() -> dict[str, str]:
 def ready(db: Session = Depends(get_db)) -> dict[str, str]:
     try:
         db.execute(text("SELECT 1"))
-        db_health.set(1)
+        if settings.failure_mode != "database_failure":
+            db_health.set(1)
         return {"status": "ready"}
     except Exception:  # noqa: BLE001
         db_health.set(0)
