@@ -20,6 +20,9 @@ spec:
             runAsNonRoot: true
             runAsUser: 1000
             allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: POSTGRES_PASSWORD
               valueFrom:
