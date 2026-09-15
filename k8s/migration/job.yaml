@@ -17,8 +17,13 @@ spec:
           image: aiops-incident-assistant-app:latest
           imagePullPolicy: IfNotPresent
           env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
             - name: DATABASE_URL
-              value: "postgresql+psycopg://aiops:aiops@postgres:5432/aiops"
+              value: "postgresql+psycopg://aiops:$(POSTGRES_PASSWORD)@postgres:5432/aiops"
           command:
             - alembic
             - upgrade
