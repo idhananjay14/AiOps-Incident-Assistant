@@ -14,6 +14,7 @@ spec:
         app: app
     spec:
       enableServiceLinks: false
+      automountServiceAccountToken: false
       containers:
         - name: app
           image: aiops-incident-assistant-app:security
