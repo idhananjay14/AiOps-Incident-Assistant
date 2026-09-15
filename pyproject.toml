@@ -22,6 +22,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = ["alembic/versions"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

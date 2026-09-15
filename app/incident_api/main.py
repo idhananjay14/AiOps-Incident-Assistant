@@ -335,7 +335,7 @@ def execute_incident_remediation(
 
     try:
         result = ControlledExecutor().execute(request)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         attempt_count, circuit_open = record_failed_attempt(
             remediation.attempt_count
         )
