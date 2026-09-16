@@ -12,6 +12,7 @@ from app.evidence.prometheus import PrometheusClient
 from app.evidence.schemas import EvidenceBundle, RCAResult
 from app.models import RCA, Incident, IncidentEvent, Remediation
 from app.rca.confidence import calculate_confidence
+from app.rca.gemini_engine import GeminiRCAEngine
 from app.rca.openai_engine import OpenAIRCAEngine
 from app.rca.validator import validate_rca
 from app.remediation.control import (
@@ -460,7 +461,10 @@ def generate_incident_rca(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    rca_result = OpenAIRCAEngine().analyze(evidence)
+    if settings.rca_provider == "gemini":
+        rca_result = GeminiRCAEngine().analyze(evidence)
+    else:
+        rca_result = OpenAIRCAEngine().analyze(evidence)
 
     try:
         validate_rca(rca_result, evidence)

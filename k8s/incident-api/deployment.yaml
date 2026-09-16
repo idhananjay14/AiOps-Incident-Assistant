@@ -15,9 +15,13 @@ spec:
     spec:
       enableServiceLinks: false
       automountServiceAccountToken: false
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
       containers:
         - name: incident-api
-          image: aiops-incident-assistant-app:security
+          image: aiops-incident-assistant-app:gemini
           imagePullPolicy: IfNotPresent
           resources:
             requests:
@@ -47,6 +51,18 @@ spec:
               value: "http://prometheus:9090"
             - name: LOKI_URL
               value: "http://loki:3100"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openai-credentials
+                  key: OPENAI_API_KEY
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gemini-credentials
+                  key: GEMINI_API_KEY
+            - name: RCA_PROVIDER
+              value: "gemini"
           command:
             - uvicorn
             - app.incident_api.main:app
