@@ -32,3 +32,11 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t aiops-incident-assistant:ci .
+
+      - name: Scan Docker image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: aiops-incident-assistant:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'

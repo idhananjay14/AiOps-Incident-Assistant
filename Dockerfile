@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12.14-slim
 
 WORKDIR /app
 
@@ -6,6 +6,10 @@ COPY pyproject.toml .
 COPY app ./app
 COPY alembic.ini .
 COPY alembic ./alembic
+
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir .
 
