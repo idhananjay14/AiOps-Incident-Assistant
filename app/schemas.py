@@ -45,6 +45,21 @@ class IncidentResponse(BaseModel):
     resolved_at: datetime | None
 
 
+class RCAResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    incident_id: int
+    root_cause: str
+    confidence: str
+    evidence: list
+    impact: str
+    contributing_factors: list
+    recommended_action: str
+    verification_steps: list
+    created_at: datetime
+
+
 class IncidentTransition(BaseModel):
     status: str
     message: str | None = None

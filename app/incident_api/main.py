@@ -31,6 +31,7 @@ from app.schemas import (
     IncidentCreate,
     IncidentResponse,
     IncidentTransition,
+    RCAResponse,
     RemediationApproval,
     RemediationCreate,
     RemediationResponse,
@@ -163,6 +164,24 @@ def get_incident_evidence(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+
+
+@app.get("/incidents/{incident_id}/rca", response_model=RCAResponse)
+def get_incident_rca(
+    incident_id: int,
+    db: Session = Depends(get_db),
+) -> RCA:
+    rca = (
+        db.query(RCA)
+        .filter(RCA.incident_id == incident_id)
+        .order_by(RCA.id.desc())
+        .first()
+    )
+
+    if rca is None:
+        raise HTTPException(status_code=404, detail="RCA not found")
+
+    return rca
 
 
 @app.post(
